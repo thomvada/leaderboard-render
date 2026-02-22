@@ -38,34 +38,28 @@ function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = nul
 app.post("/render", async (req, res) => {
   try {
 
-    // ✅ Compatible n8n
     const payload = req.body.json ?? req.body;
     const { rows, assets, layout } = payload;
 
-    // ======================
     // POLICE
-    // ======================
     const fontBuffer = await fetchBuffer(assets.font);
     const fontPath = "/tmp/font.ttf";
     fs.writeFileSync(fontPath, fontBuffer);
     registerFont(fontPath, { family: "CustomFont" });
 
-    // ======================
     // BACKGROUND
-    // ======================
     const bg = await loadImage(await fetchBuffer(assets.background));
     const W = bg.width;
     const H = bg.height;
 
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext("2d");
+
     ctx.drawImage(bg, 0, 0);
 
     ctx.textBaseline = "top";
 
-    // ======================
     // BANNIÈRES + MONTANTS
-    // ======================
     for (let i = 0; i < rows.length; i++) {
 
       const banner = await loadImage(await fetchBuffer(rows[i].banner));
@@ -107,9 +101,9 @@ app.post("/render", async (req, res) => {
       );
     }
 
-    // ======================
-    // FOOTER NUMBER (CENTRÉ EXACT PS)
-    // ======================
+    // =========================
+    // FOOTER NUMBER
+    // =========================
     if (layout.footerNumber && layout.footerNumber.text) {
 
       const f = layout.footerNumber;
@@ -117,18 +111,29 @@ app.post("/render", async (req, res) => {
       ctx.font = f.fontPx + "px CustomFont";
       ctx.fillStyle = f.color || "#FC2D35";
 
-      // 🔥 CENTRAGE PARFAIT
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
       ctx.fillText(String(f.text), f.x, f.y);
+
+      // =========================
+      // DEBUG CROSSHAIR
+      // =========================
+      ctx.strokeStyle = "lime";
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.moveTo(f.x - 20, f.y);
+      ctx.lineTo(f.x + 20, f.y);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(f.x, f.y - 20);
+      ctx.lineTo(f.x, f.y + 20);
+      ctx.stroke();
     }
 
-    // ======================
-    // EXPORT
-    // ======================
     const img = canvas.toBuffer("image/png");
-
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "no-store");
     res.status(200).send(img);
