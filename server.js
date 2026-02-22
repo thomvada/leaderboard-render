@@ -22,13 +22,6 @@ app.post("/render", async (req, res) => {
   try {
     const { rows, assets, layout } = req.body;
 
-    // Taille finale de l'image
-    const W = layout.size.w;
-    const H = layout.size.h;
-
-    const canvas = createCanvas(W, H);
-    const ctx = canvas.getContext("2d");
-
     // Charger la police (fichier .ttf)
     const fontBuffer = await fetchBuffer(assets.font);
     const fs = await import("fs");
@@ -36,9 +29,18 @@ app.post("/render", async (req, res) => {
     fs.writeFileSync(fontPath, fontBuffer);
     registerFont(fontPath, { family: "CustomFont" });
 
-    // Fond
+    // Fond (on le charge AVANT pour prendre sa taille exacte)
     const bg = await loadImage(await fetchBuffer(assets.background));
-    ctx.drawImage(bg, 0, 0, W, H);
+
+    // Canvas = taille exacte du background (plus jamais d'image coupée)
+    const W = bg.width;
+    const H = bg.height;
+
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext("2d");
+
+    // Dessiner le background tel quel
+    ctx.drawImage(bg, 0, 0);
 
     // Réglages texte
     ctx.font = layout.text.fontPx + "px CustomFont";
