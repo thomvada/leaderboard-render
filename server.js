@@ -7,7 +7,7 @@ app.use(express.json({ limit: "5mb" }));
 
 async function fetchBuffer(url) {
   const r = await fetch(url);
-  if (!r.ok) throw new Error("Fichier introuvable (URL) : " + url);
+  if (!r.ok) throw new Error("Fichier introuvable : " + url);
   const ab = await r.arrayBuffer();
   return Buffer.from(ab);
 }
@@ -41,13 +41,13 @@ app.post("/render", async (req, res) => {
     const payload = req.body.json ?? req.body;
     const { rows, assets, layout } = payload;
 
-    // POLICE
+    // Police
     const fontBuffer = await fetchBuffer(assets.font);
     const fontPath = "/tmp/font.ttf";
     fs.writeFileSync(fontPath, fontBuffer);
     registerFont(fontPath, { family: "CustomFont" });
 
-    // BACKGROUND
+    // Background
     const bg = await loadImage(await fetchBuffer(assets.background));
     const W = bg.width;
     const H = bg.height;
@@ -101,9 +101,7 @@ app.post("/render", async (req, res) => {
       );
     }
 
-    // =========================
-    // FOOTER NUMBER
-    // =========================
+    // FOOTER NUMBER (centrage parfait)
     if (layout.footerNumber && layout.footerNumber.text) {
 
       const f = layout.footerNumber;
@@ -115,25 +113,10 @@ app.post("/render", async (req, res) => {
       ctx.textBaseline = "middle";
 
       ctx.fillText(String(f.text), f.x, f.y);
-
-      // =========================
-      // DEBUG CROSSHAIR
-      // =========================
-      ctx.strokeStyle = "lime";
-      ctx.lineWidth = 2;
-
-      ctx.beginPath();
-      ctx.moveTo(f.x - 20, f.y);
-      ctx.lineTo(f.x + 20, f.y);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(f.x, f.y - 20);
-      ctx.lineTo(f.x, f.y + 20);
-      ctx.stroke();
     }
 
     const img = canvas.toBuffer("image/png");
+
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "no-store");
     res.status(200).send(img);
@@ -143,7 +126,4 @@ app.post("/render", async (req, res) => {
   }
 });
 
-app.get("/", (_, res) => res.send("OK"));
-
-const port = process.env.PORT || 10000;
-app.listen(port);
+app.listen(process.env.PORT || 10000);
