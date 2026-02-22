@@ -1,6 +1,3 @@
-// =============================
-// GitHub / Server — index.js (ENTIER) — À JOUR
-// =============================
 const express = require("express");
 const { createCanvas, loadImage, registerFont } = require("canvas");
 const fs = require("fs");
@@ -11,8 +8,7 @@ app.use(express.json({ limit: "5mb" }));
 async function fetchBuffer(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error("Fichier introuvable : " + url);
-  const ab = await r.arrayBuffer();
-  return Buffer.from(ab);
+  return Buffer.from(await r.arrayBuffer());
 }
 
 // Image anchored (topleft/center)
@@ -32,40 +28,30 @@ function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = nul
   else ctx.drawImage(img, dx, dy);
 }
 
-// Text: reliable center (horizontal + vertical) using metrics
-function drawTextCentered(ctx, text, cx, cy, fontPxFallback = 0) {
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-
-  const t = String(text);
-  const m = ctx.measureText(t);
-  const ascent = m.actualBoundingBoxAscent ?? 0;
-  const descent = m.actualBoundingBoxDescent ?? 0;
-
-  if (ascent > 0 || descent > 0) {
-    const baselineY = cy + (ascent - descent) / 2;
-    ctx.fillText(t, cx, baselineY);
-    return;
-  }
-
-  // fallback if metrics are unavailable
-  const fp = Number(fontPxFallback) || 0;
-  const baselineY = cy + fp * 0.35;
-  ctx.fillText(t, cx, baselineY);
+// Convert PS unit value (string "2,853") into px using pxPerUnit
+function psValueToPx(v, pxPerUnit) {
+  const n = Number(String(v).replace(",", "."));
+  if (!Number.isFinite(n)) return 0;
+  return n * pxPerUnit;
 }
 
-// Text: anchored horizontally only (left/center/right) at y (top)
-function drawTextTop(ctx, text, x, y, anchor = "left") {
-  const a = String(anchor || "left").toLowerCase();
-  ctx.textAlign = (a === "center" || a === "right") ? a : "left";
-  ctx.textBaseline = "top";
+// Draw baseline text (left/center) with absolute px coords
+function drawTextBaseline(ctx, text, x, y, anchor = "baselineLeft") {
+  const a = String(anchor || "baselineLeft").toLowerCase();
+  ctx.textAlign = a.includes("center") ? "center" : "left";
+  ctx.textBaseline = "alphabetic";
   ctx.fillText(String(text), x, y);
 }
 
 app.post("/render", async (req, res) => {
   try {
-    const payload = req.body.json ?? req.body;
-    const { rows, assets, layout } = payload;
+    const payload = req.body?.json ?? req.body;
+    const { rows, assets, layout } = payload || {};
+
+    if (!rows || !Array.isArray(rows)) throw new Error("Payload invalide: rows manquant.");
+    if (!assets?.background) throw new Error("Payload invalide: assets.background manquant.");
+    if (!assets?.font) throw new Error("Payload invalide: assets.font manquant.");
+    if (!layout?.bannerSlots || !layout?.amountSlots) throw new Error("Payload invalide: layout.bannerSlots/amountSlots manquants.");
 
     // ======================
     // POLICE
@@ -84,20 +70,16 @@ app.post("/render", async (req, res) => {
 
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext("2d");
-
     ctx.drawImage(bg, 0, 0);
 
     // ======================
-    // PRELOAD FIRST BOX (toujours, fixe)
+    // PRELOAD FIRST BOX
     // ======================
     let firstBoxImg = null;
     if (assets.firstBox && layout.firstBox) {
       firstBoxImg = await loadImage(await fetchBuffer(assets.firstBox));
     }
 
-    // ======================
-    // 1) BANNIÈRES (BEHIND EVERYTHING)
-    // ======================
     const n = Math.min(
       3,
       rows.length,
@@ -105,6 +87,11 @@ app.post("/render", async (req, res) => {
       layout.amountSlots.length
     );
 
+    const pxPerUnit = Number(layout?.coordSystem?.pxPerUnit) || 1;
+
+    // ======================
+    // 1) BANNIÈRES (fond) — TOP-LEFT PX
+    // ======================
     for (let i = 0; i < n; i++) {
       const bannerImg = await loadImage(await fetchBuffer(rows[i].banner));
       const bs = layout.bannerSlots[i];
@@ -112,60 +99,58 @@ app.post("/render", async (req, res) => {
     }
 
     // ======================
-    // 2) FIRST BOX (FIXE, AU PREMIER PLAN)
-    //    Rien au-dessus sauf le texte du 1er
+    // 2) TEXTES 2e & 3e (au-dessus des bannières)
+    //    Baseline-left, coords PS -> px
+    // ======================
+    for (let i = 1; i < n; i++) {
+      const fontPx = layout.text?.fontPxByRow?.[i] ?? 158;
+      ctx.font = `${fontPx}px CustomFont`;
+      ctx.fillStyle = layout.text?.colorNormal || "#FC2D35";
+
+      const s = layout.amountSlots[i];
+      const xPx = psValueToPx(s.x, pxPerUnit);
+      const yPx = psValueToPx(s.y, pxPerUnit);
+
+      drawTextBaseline(ctx, rows[i].amountText, xPx, yPx, s.anchor || "baselineLeft");
+    }
+
+    // ======================
+    // 3) FIRST BOX (AU PREMIER PLAN, TOUJOURS)
     // ======================
     if (firstBoxImg && layout.firstBox) {
       const fb = layout.firstBox;
-      drawImageAnchored(
-        ctx,
-        firstBoxImg,
-        fb.x,
-        fb.y,
-        fb.anchor || "topleft",
-        fb.w || null,
-        fb.h || null
-      );
+      drawImageAnchored(ctx, firstBoxImg, fb.x, fb.y, fb.anchor || "topleft");
     }
 
     // ======================
-    // 3) MONTANTS
-    //    - texte du 1er au-dessus du rectangle rouge
-    //    - textes 2e/3e au-dessus de tout aussi (OK)
+    // 4) TEXTE DU 1er (SEUL élément au-dessus du rectangle rouge)
     // ======================
-    for (let i = 0; i < n; i++) {
-      const fontPx =
-        (layout.text.fontPxByRow && layout.text.fontPxByRow[i])
-          ? layout.text.fontPxByRow[i]
-          : layout.text.fontPx;
-
+    if (n >= 1) {
+      const fontPx = layout.text?.fontPxByRow?.[0] ?? 158;
       ctx.font = `${fontPx}px CustomFont`;
-      ctx.fillStyle = (i === 0)
-        ? layout.text.colorFirst
-        : layout.text.colorNormal;
+      ctx.fillStyle = layout.text?.colorFirst || "#FFFFFF";
 
-      const slot = layout.amountSlots[i];
+      const s0 = layout.amountSlots[0];
+      const x0Px = psValueToPx(s0.x, pxPerUnit);
+      const y0Px = psValueToPx(s0.y, pxPerUnit);
 
-      // Tu as donné des coords "texte" fixes.
-      // On les traite comme un POINT-CENTRE du texte.
-      if (String(slot.anchor).toLowerCase() === "center") {
-        drawTextCentered(ctx, rows[i].amountText, slot.x, slot.y, fontPx);
-      } else {
-        // fallback
-        drawTextTop(ctx, rows[i].amountText, slot.x, slot.y, slot.anchor);
-      }
+      drawTextBaseline(ctx, rows[0].amountText, x0Px, y0Px, s0.anchor || "baselineLeft");
     }
 
     // ======================
-    // 4) FOOTER NUMBER (centre)
+    // 5) FOOTER (baseline-center)
     // ======================
     if (layout.footerNumber && layout.footerNumber.text != null) {
       const f = layout.footerNumber;
-      ctx.font = `${f.fontPx}px CustomFont`;
+      const fontPx = Number(f.fontPx) || 71;
+
+      ctx.font = `${fontPx}px CustomFont`;
       ctx.fillStyle = f.color || "#FC2D35";
 
-      // footer coords = centre du texte
-      drawTextCentered(ctx, String(f.text), f.x, f.y, f.fontPx);
+      const fxPx = psValueToPx(f.x, pxPerUnit);
+      const fyPx = psValueToPx(f.y, pxPerUnit);
+
+      drawTextBaseline(ctx, String(f.text), fxPx, fyPx, f.anchor || "baselineCenter");
     }
 
     // ======================
