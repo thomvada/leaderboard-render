@@ -19,7 +19,6 @@ function drawText(ctx, text, x, y, align) {
   ctx.fillText(text, x, y);
 }
 
-// ✅ Nouvelle fonction : place une image selon un repère
 function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = null) {
   const iw = w ?? img.width;
   const ih = h ?? img.height;
@@ -35,7 +34,6 @@ function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = nul
   } else if (anchor === "left") {
     dy = y - ih / 2;
   }
-  // default: "topleft" => rien
 
   if (w && h) ctx.drawImage(img, dx, dy, w, h);
   else ctx.drawImage(img, dx, dy);
@@ -51,7 +49,7 @@ app.post("/render", async (req, res) => {
     fs.writeFileSync(fontPath, fontBuffer);
     registerFont(fontPath, { family: "CustomFont" });
 
-    // Background => taille exacte
+    // Background
     const bg = await loadImage(await fetchBuffer(assets.background));
     const W = bg.width;
     const H = bg.height;
@@ -60,16 +58,14 @@ app.post("/render", async (req, res) => {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(bg, 0, 0);
 
-    // Texte: y = haut du texte (plus simple)
     ctx.textBaseline = "top";
 
     for (let i = 0; i < rows.length; i++) {
-      // Bannière
+
       const banner = await loadImage(await fetchBuffer(rows[i].banner));
       const bs = layout.bannerSlots[i];
       drawImageAnchored(ctx, banner, bs.x, bs.y, bs.anchor || "topleft");
 
-      // Rectangle 1st (uniquement pour le 1er)
       if (rows[i].isFirst && assets.firstBox && layout.firstBox) {
         const firstBoxImg = await loadImage(await fetchBuffer(assets.firstBox));
         const fb = layout.firstBox;
@@ -85,25 +81,46 @@ app.post("/render", async (req, res) => {
         );
       }
 
-      // Taille de police par ligne si fourni
       const fontPx =
         (layout.text.fontPxByRow && layout.text.fontPxByRow[i])
           ? layout.text.fontPxByRow[i]
           : layout.text.fontPx;
 
       ctx.font = fontPx + "px CustomFont";
+      ctx.fillStyle = rows[i].isFirst
+        ? layout.text.colorFirst
+        : layout.text.colorNormal;
 
-      // Couleur texte
-      ctx.fillStyle = rows[i].isFirst ? layout.text.colorFirst : layout.text.colorNormal;
+      drawText(
+        ctx,
+        rows[i].amountText,
+        layout.amountSlots[i].x,
+        layout.amountSlots[i].y,
+        layout.amountSlots[i].anchor
+      );
+    }
 
-      // Texte montant
-      drawText(ctx, rows[i].amountText, layout.amountSlots[i].x, layout.amountSlots[i].y, layout.amountSlots[i].anchor);
+    // ==============================
+    // ✅ FOOTER NUMBER (AJOUTÉ)
+    // ==============================
+    if (layout.footerNumber && layout.footerNumber.text) {
+
+      const f = layout.footerNumber;
+
+      ctx.font = f.fontPx + "px CustomFont";
+      ctx.fillStyle = f.color || "#FC2D35";
+
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      ctx.fillText(String(f.text), f.x, f.y);
     }
 
     const img = canvas.toBuffer("image/png");
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "no-store");
     res.status(200).send(img);
+
   } catch (err) {
     res.status(500).json({ error: String(err.message || err) });
   }
