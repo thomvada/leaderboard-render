@@ -1,6 +1,5 @@
 {
   "name": "leaderboard-render",
-  "type": "module",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
@@ -8,7 +7,6 @@
   },
   "dependencies": {
     "canvas": "^2.11.2",
-    "express": "^4.19.2",
-    "node-fetch": "^3.3.2"
+    "express": "^4.19.2"
   }
 }
