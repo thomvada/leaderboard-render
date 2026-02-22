@@ -19,6 +19,28 @@ function drawText(ctx, text, x, y, align) {
   ctx.fillText(text, x, y);
 }
 
+// ✅ Nouvelle fonction : place une image selon un repère
+function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = null) {
+  const iw = w ?? img.width;
+  const ih = h ?? img.height;
+
+  let dx = x;
+  let dy = y;
+
+  if (anchor === "center") {
+    dx = x - iw / 2;
+    dy = y - ih / 2;
+  } else if (anchor === "top") {
+    dx = x - iw / 2;
+  } else if (anchor === "left") {
+    dy = y - ih / 2;
+  }
+  // default: "topleft" => rien
+
+  if (w && h) ctx.drawImage(img, dx, dy, w, h);
+  else ctx.drawImage(img, dx, dy);
+}
+
 app.post("/render", async (req, res) => {
   try {
     const { rows, assets, layout } = req.body;
@@ -29,7 +51,7 @@ app.post("/render", async (req, res) => {
     fs.writeFileSync(fontPath, fontBuffer);
     registerFont(fontPath, { family: "CustomFont" });
 
-    // Background => taille exacte (pas d'image coupée)
+    // Background => taille exacte
     const bg = await loadImage(await fetchBuffer(assets.background));
     const W = bg.width;
     const H = bg.height;
@@ -38,29 +60,36 @@ app.post("/render", async (req, res) => {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(bg, 0, 0);
 
-    // IMPORTANT: y = haut du texte (coordonnées simples)
+    // Texte: y = haut du texte (plus simple)
     ctx.textBaseline = "top";
 
     for (let i = 0; i < rows.length; i++) {
       // Bannière
       const banner = await loadImage(await fetchBuffer(rows[i].banner));
-      ctx.drawImage(banner, layout.bannerSlots[i].x, layout.bannerSlots[i].y);
+      const bs = layout.bannerSlots[i];
+      drawImageAnchored(ctx, banner, bs.x, bs.y, bs.anchor || "topleft");
 
-      // Rectangle "1st" derrière le texte du 1er
-      if (rows[i].isFirst && assets.firstBox) {
-        const firstBox = await loadImage(await fetchBuffer(assets.firstBox));
-        const fb = layout.firstBox || {};
-        const boxX = fb.x; // position absolue
-        const boxY = fb.y; // position absolue
+      // Rectangle 1st (uniquement pour le 1er)
+      if (rows[i].isFirst && assets.firstBox && layout.firstBox) {
+        const firstBoxImg = await loadImage(await fetchBuffer(assets.firstBox));
+        const fb = layout.firstBox;
 
-        if (fb.w && fb.h) ctx.drawImage(firstBox, boxX, boxY, fb.w, fb.h);
-        else ctx.drawImage(firstBox, boxX, boxY);
+        drawImageAnchored(
+          ctx,
+          firstBoxImg,
+          fb.x,
+          fb.y,
+          fb.anchor || "topleft",
+          fb.w || null,
+          fb.h || null
+        );
       }
 
-      // Texte (taille potentiellement différente 1er vs autres)
-      const fontPx = (layout.text.fontPxByRow && layout.text.fontPxByRow[i])
-        ? layout.text.fontPxByRow[i]
-        : layout.text.fontPx;
+      // Taille de police par ligne si fourni
+      const fontPx =
+        (layout.text.fontPxByRow && layout.text.fontPxByRow[i])
+          ? layout.text.fontPxByRow[i]
+          : layout.text.fontPx;
 
       ctx.font = fontPx + "px CustomFont";
 
@@ -68,13 +97,7 @@ app.post("/render", async (req, res) => {
       ctx.fillStyle = rows[i].isFirst ? layout.text.colorFirst : layout.text.colorNormal;
 
       // Texte montant
-      drawText(
-        ctx,
-        rows[i].amountText,
-        layout.amountSlots[i].x,
-        layout.amountSlots[i].y,
-        layout.amountSlots[i].anchor
-      );
+      drawText(ctx, rows[i].amountText, layout.amountSlots[i].x, layout.amountSlots[i].y, layout.amountSlots[i].anchor);
     }
 
     const img = canvas.toBuffer("image/png");
