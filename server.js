@@ -29,7 +29,7 @@ app.post("/render", async (req, res) => {
     fs.writeFileSync(fontPath, fontBuffer);
     registerFont(fontPath, { family: "CustomFont" });
 
-    // Background => taille exacte (plus d'image coupée)
+    // Background => taille exacte (pas d'image coupée)
     const bg = await loadImage(await fetchBuffer(assets.background));
     const W = bg.width;
     const H = bg.height;
@@ -38,8 +38,7 @@ app.post("/render", async (req, res) => {
     const ctx = canvas.getContext("2d");
     ctx.drawImage(bg, 0, 0);
 
-    // IMPORTANT: y = haut du texte (coordonnées plus intuitives)
-    ctx.font = layout.text.fontPx + "px CustomFont";
+    // IMPORTANT: y = haut du texte (coordonnées simples)
     ctx.textBaseline = "top";
 
     for (let i = 0; i < rows.length; i++) {
@@ -47,22 +46,35 @@ app.post("/render", async (req, res) => {
       const banner = await loadImage(await fetchBuffer(rows[i].banner));
       ctx.drawImage(banner, layout.bannerSlots[i].x, layout.bannerSlots[i].y);
 
-      // Rectangle 1st derrière le texte du 1er
+      // Rectangle "1st" derrière le texte du 1er
       if (rows[i].isFirst && assets.firstBox) {
         const firstBox = await loadImage(await fetchBuffer(assets.firstBox));
         const fb = layout.firstBox || {};
-        const boxX = layout.amountSlots[i].x + (fb.offsetX || 0);
-        const boxY = layout.amountSlots[i].y + (fb.offsetY || 0);
+        const boxX = fb.x; // position absolue
+        const boxY = fb.y; // position absolue
 
         if (fb.w && fb.h) ctx.drawImage(firstBox, boxX, boxY, fb.w, fb.h);
         else ctx.drawImage(firstBox, boxX, boxY);
       }
 
+      // Texte (taille potentiellement différente 1er vs autres)
+      const fontPx = (layout.text.fontPxByRow && layout.text.fontPxByRow[i])
+        ? layout.text.fontPxByRow[i]
+        : layout.text.fontPx;
+
+      ctx.font = fontPx + "px CustomFont";
+
       // Couleur texte
       ctx.fillStyle = rows[i].isFirst ? layout.text.colorFirst : layout.text.colorNormal;
 
-      // Texte
-      drawText(ctx, rows[i].amountText, layout.amountSlots[i].x, layout.amountSlots[i].y, layout.amountSlots[i].anchor);
+      // Texte montant
+      drawText(
+        ctx,
+        rows[i].amountText,
+        layout.amountSlots[i].x,
+        layout.amountSlots[i].y,
+        layout.amountSlots[i].anchor
+      );
     }
 
     const img = canvas.toBuffer("image/png");
