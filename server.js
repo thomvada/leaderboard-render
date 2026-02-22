@@ -41,13 +41,17 @@ app.post("/render", async (req, res) => {
     const payload = req.body.json ?? req.body;
     const { rows, assets, layout } = payload;
 
-    // Police
+    // ======================
+    // POLICE
+    // ======================
     const fontBuffer = await fetchBuffer(assets.font);
     const fontPath = "/tmp/font.ttf";
     fs.writeFileSync(fontPath, fontBuffer);
     registerFont(fontPath, { family: "CustomFont" });
 
-    // Background
+    // ======================
+    // BACKGROUND
+    // ======================
     const bg = await loadImage(await fetchBuffer(assets.background));
     const W = bg.width;
     const H = bg.height;
@@ -59,7 +63,9 @@ app.post("/render", async (req, res) => {
 
     ctx.textBaseline = "top";
 
+    // ======================
     // BANNIÈRES + MONTANTS
+    // ======================
     for (let i = 0; i < rows.length; i++) {
 
       const banner = await loadImage(await fetchBuffer(rows[i].banner));
@@ -101,7 +107,9 @@ app.post("/render", async (req, res) => {
       );
     }
 
-    // FOOTER NUMBER (centrage parfait)
+    // ======================
+    // FOOTER NUMBER (STABLE)
+    // ======================
     if (layout.footerNumber && layout.footerNumber.text) {
 
       const f = layout.footerNumber;
@@ -109,12 +117,21 @@ app.post("/render", async (req, res) => {
       ctx.font = f.fontPx + "px CustomFont";
       ctx.fillStyle = f.color || "#FC2D35";
 
+      // centrage horizontal automatique
       ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
 
-      ctx.fillText(String(f.text), f.x, f.y);
+      // on travaille en top pour contrôle exact
+      ctx.textBaseline = "top";
+
+      // conversion centre Photoshop -> top Canvas
+      const topY = f.y - (f.fontPx / 2);
+
+      ctx.fillText(String(f.text), f.x, topY);
     }
 
+    // ======================
+    // EXPORT
+    // ======================
     const img = canvas.toBuffer("image/png");
 
     res.setHeader("Content-Type", "image/png");
