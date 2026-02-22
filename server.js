@@ -5,13 +5,49 @@ const fs = require("fs");
 const app = express();
 app.use(express.json({ limit: "5mb" }));
 
+// ---------------------------
+// Simple caches (perf + stabilité)
+// ---------------------------
+const bufferCache = new Map(); // url -> Buffer
+const imageCache = new Map(); // url -> Image
+let registeredFontKey = null;
+
 async function fetchBuffer(url) {
+  if (!url) throw new Error("URL manquante");
+  if (bufferCache.has(url)) return bufferCache.get(url);
+
   const r = await fetch(url);
   if (!r.ok) throw new Error("Fichier introuvable : " + url);
+
   const ab = await r.arrayBuffer();
-  return Buffer.from(ab);
+  const buf = Buffer.from(ab);
+  bufferCache.set(url, buf);
+  return buf;
 }
 
+async function loadImageFromUrl(url) {
+  if (imageCache.has(url)) return imageCache.get(url);
+  const buf = await fetchBuffer(url);
+  const img = await loadImage(buf);
+  imageCache.set(url, img);
+  return img;
+}
+
+async function ensureFontRegistered(fontUrl) {
+  // Re-register uniquement si l’URL change
+  if (registeredFontKey === fontUrl) return;
+
+  const fontBuffer = await fetchBuffer(fontUrl);
+  const fontPath = "/tmp/font.ttf";
+  fs.writeFileSync(fontPath, fontBuffer);
+  registerFont(fontPath, { family: "CustomFont" });
+
+  registeredFontKey = fontUrl;
+}
+
+// ---------------------------
+// Image anchor (center/topleft)
+// ---------------------------
 function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = null) {
   const iw = w ?? img.width;
   const ih = h ?? img.height;
@@ -19,7 +55,7 @@ function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = nul
   let dx = x;
   let dy = y;
 
-  if (anchor === "center") {
+  if (String(anchor).toLowerCase() === "center") {
     dx = x - iw / 2;
     dy = y - ih / 2;
   }
@@ -28,46 +64,64 @@ function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = nul
   else ctx.drawImage(img, dx, dy);
 }
 
-/**
- * Draw text with horizontal anchor only.
- * - slot.anchor can be: "left" | "center" | "right"
- * - Unknown values fall back to "center"
- * - y is used as TOP because ctx.textBaseline="top"
- */
-function drawTextAnchored(ctx, text, slot) {
-  const prevAlign = ctx.textAlign;
+// ---------------------------
+// Text CENTER (fiable) via metrics
+// - (cx,cy) = centre visuel du texte
+// - fallback si metrics indisponibles
+// ---------------------------
+function fillTextCentered(ctx, text, cx, cy, fontPxFallback = 0) {
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
 
-  const a = String(slot?.anchor || "center").toLowerCase();
-  const textAlign = (a === "left" || a === "right" || a === "center") ? a : "center";
+  const t = String(text);
+  const m = ctx.measureText(t);
 
-  ctx.textAlign = textAlign;
-  ctx.fillText(String(text), slot.x, slot.y);
+  const ascent = m.actualBoundingBoxAscent ?? 0;
+  const descent = m.actualBoundingBoxDescent ?? 0;
 
-  ctx.textAlign = prevAlign;
+  if (ascent > 0 || descent > 0) {
+    const baselineY = cy + (ascent - descent) / 2;
+    ctx.fillText(t, cx, baselineY);
+    return;
+  }
+
+  // Fallback propre si la police ne renvoie pas de bounding boxes
+  // approx: baseline ~ cy + fontPx*0.35 (empirique mais stable)
+  const fp = Number(fontPxFallback) || 0;
+  const baselineY = cy + fp * 0.35;
+  ctx.fillText(t, cx, baselineY);
+}
+
+// ---------------------------
+// Optional debug visuals
+// ---------------------------
+function drawDebugCross(ctx, x, y, size = 10) {
+  ctx.save();
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x - size, y);
+  ctx.lineTo(x + size, y);
+  ctx.moveTo(x, y - size);
+  ctx.lineTo(x, y + size);
+  ctx.stroke();
+  ctx.restore();
 }
 
 app.post("/render", async (req, res) => {
   try {
-    const payload = req.body.json ?? req.body;
-    const { rows, assets, layout } = payload;
+    const payload = req.body?.json ?? req.body;
+    const { rows, assets, layout } = payload || {};
 
     if (!rows || !Array.isArray(rows)) throw new Error("Payload invalide: rows manquant.");
     if (!assets?.background) throw new Error("Payload invalide: assets.background manquant.");
     if (!assets?.font) throw new Error("Payload invalide: assets.font manquant.");
-    if (!layout?.bannerSlots || !layout?.amountSlots) throw new Error("Payload invalide: layout.* manquant.");
+    if (!layout?.bannerSlots || !layout?.amountSlots) throw new Error("Payload invalide: layout.bannerSlots/amountSlots manquants.");
 
-    // ======================
-    // POLICE
-    // ======================
-    const fontBuffer = await fetchBuffer(assets.font);
-    const fontPath = "/tmp/font.ttf";
-    fs.writeFileSync(fontPath, fontBuffer);
-    registerFont(fontPath, { family: "CustomFont" });
+    // Font
+    await ensureFontRegistered(assets.font);
 
-    // ======================
-    // BACKGROUND
-    // ======================
-    const bg = await loadImage(await fetchBuffer(assets.background));
+    // Background
+    const bg = await loadImageFromUrl(assets.background);
     const W = bg.width;
     const H = bg.height;
 
@@ -76,88 +130,97 @@ app.post("/render", async (req, res) => {
 
     ctx.drawImage(bg, 0, 0);
 
-    // Nous travaillons en TOP pour avoir un y stable
-    ctx.textBaseline = "top";
-
-    // ======================
-    // PRELOAD FIRST BOX (si présent)
-    // ======================
+    // Preload firstBox if any
     let firstBoxImg = null;
     if (assets.firstBox && layout.firstBox) {
-      firstBoxImg = await loadImage(await fetchBuffer(assets.firstBox));
+      firstBoxImg = await loadImageFromUrl(assets.firstBox);
     }
 
-    // ======================
-    // BANNIÈRES + 1st BOX + MONTANTS
-    // ======================
-    const n = Math.min(rows.length, 3); // si tu veux strict top3 côté render
+    const n = Math.min(
+      3,
+      rows.length,
+      layout.bannerSlots.length,
+      layout.amountSlots.length
+    );
+
+    const debugEnabled = Boolean(layout.debug?.enabled);
+
     for (let i = 0; i < n; i++) {
       const row = rows[i];
-
-      // Banner
-      if (!row?.banner) throw new Error(`Banner manquante pour rows[${i}] (${row?.name || "?"})`);
-      const banner = await loadImage(await fetchBuffer(row.banner));
       const bs = layout.bannerSlots[i];
-      if (!bs) throw new Error(`layout.bannerSlots[${i}] manquant`);
-      drawImageAnchored(ctx, banner, bs.x, bs.y, bs.anchor || "topleft");
+      const as = layout.amountSlots[i];
 
-      // First box (dessinée APRES la bannière, AVANT le texte)
+      if (!row?.banner) throw new Error(`Banner manquante pour rows[${i}] (${row?.name || "?"})`);
+      if (!bs) throw new Error(`layout.bannerSlots[${i}] manquant`);
+      if (!as) throw new Error(`layout.amountSlots[${i}] manquant`);
+
+      // 1) First box (derrière le 1er) — couche standard
       if (row.isFirst && firstBoxImg && layout.firstBox) {
         const fb = layout.firstBox;
-        drawImageAnchored(
-          ctx,
-          firstBoxImg,
-          fb.x,
-          fb.y,
-          fb.anchor || "topleft",
-          fb.w || null,
-          fb.h || null
-        );
+        const layer = String(fb.layer || "belowBanner").toLowerCase();
+
+        if (layer === "belowbanner" || layer === "below_banner") {
+          drawImageAnchored(ctx, firstBoxImg, fb.x, fb.y, fb.anchor || "topleft", fb.w || null, fb.h || null);
+        }
       }
 
-      // Font size
+      // 2) Banner
+      const bannerImg = await loadImageFromUrl(row.banner);
+      drawImageAnchored(ctx, bannerImg, bs.x, bs.y, bs.anchor || "topleft");
+
+      // 3) First box alternative (au-dessus de la bannière) si tu veux
+      if (row.isFirst && firstBoxImg && layout.firstBox) {
+        const fb = layout.firstBox;
+        const layer = String(fb.layer || "belowBanner").toLowerCase();
+
+        if (layer === "abovebanner" || layer === "above_banner") {
+          drawImageAnchored(ctx, firstBoxImg, fb.x, fb.y, fb.anchor || "topleft", fb.w || null, fb.h || null);
+        }
+      }
+
+      // 4) Amount text — CENTER fiable
       const fontPx =
         (layout.text?.fontPxByRow && layout.text.fontPxByRow[i])
           ? layout.text.fontPxByRow[i]
           : (layout.text?.fontPx || 120);
 
       ctx.font = `${fontPx}px CustomFont`;
-
-      // Color
       ctx.fillStyle = row.isFirst
         ? (layout.text?.colorFirst || "#FFFFFF")
         : (layout.text?.colorNormal || "#FC2D35");
 
-      // Amount
-      const as = layout.amountSlots[i];
-      if (!as) throw new Error(`layout.amountSlots[${i}] manquant`);
-      drawTextAnchored(ctx, row.amountText, as);
+      fillTextCentered(ctx, row.amountText, as.x, as.y, fontPx);
+
+      // Debug
+      if (debugEnabled) {
+        ctx.save();
+        ctx.strokeStyle = "#00FF00";
+        drawDebugCross(ctx, bs.x, bs.y, 12);
+        ctx.strokeStyle = "#FF00FF";
+        drawDebugCross(ctx, as.x, as.y, 12);
+        ctx.restore();
+      }
     }
 
-    // ======================
-    // FOOTER NUMBER (STABLE)
-    // ======================
+    // Footer number — CENTER fiable
     if (layout.footerNumber && layout.footerNumber.text != null) {
       const f = layout.footerNumber;
+      const fp = Number(f.fontPx) || 60;
 
-      ctx.font = `${f.fontPx}px CustomFont`;
+      ctx.font = `${fp}px CustomFont`;
       ctx.fillStyle = f.color || "#FC2D35";
 
-      // centrage horizontal fiable
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
+      fillTextCentered(ctx, String(f.text), f.x, f.y, fp);
 
-      // conversion centre Photoshop -> top Canvas
-      const topY = f.y - (f.fontPx / 2);
-      ctx.fillText(String(f.text), f.x, topY);
-
-      // reset align pour éviter effets de bord
-      ctx.textAlign = "start";
+      if (debugEnabled) {
+        ctx.save();
+        ctx.strokeStyle = "#00FFFF";
+        drawDebugCross(ctx, f.x, f.y, 12);
+        ctx.restore();
+      }
     }
 
-    // ======================
-    // EXPORT
-    // ======================
+    // Export PNG
     const img = canvas.toBuffer("image/png");
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "no-store");
