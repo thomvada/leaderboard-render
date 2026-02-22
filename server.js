@@ -29,10 +29,6 @@ function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = nul
   if (anchor === "center") {
     dx = x - iw / 2;
     dy = y - ih / 2;
-  } else if (anchor === "top") {
-    dx = x - iw / 2;
-  } else if (anchor === "left") {
-    dy = y - ih / 2;
   }
 
   if (w && h) ctx.drawImage(img, dx, dy, w, h);
@@ -41,25 +37,36 @@ function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = nul
 
 app.post("/render", async (req, res) => {
   try {
-    const { rows, assets, layout } = req.body;
 
-    // Police
+    // 🔥 FIX JSON N8N
+    const payload = req.body.json ?? req.body;
+    const { rows, assets, layout } = payload;
+
+    // ======================
+    // POLICE
+    // ======================
     const fontBuffer = await fetchBuffer(assets.font);
     const fontPath = "/tmp/font.ttf";
     fs.writeFileSync(fontPath, fontBuffer);
     registerFont(fontPath, { family: "CustomFont" });
 
-    // Background
+    // ======================
+    // BACKGROUND
+    // ======================
     const bg = await loadImage(await fetchBuffer(assets.background));
     const W = bg.width;
     const H = bg.height;
 
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext("2d");
+
     ctx.drawImage(bg, 0, 0);
 
     ctx.textBaseline = "top";
 
+    // ======================
+    // BANNIÈRES + MONTANTS
+    // ======================
     for (let i = 0; i < rows.length; i++) {
 
       const banner = await loadImage(await fetchBuffer(rows[i].banner));
@@ -87,6 +94,7 @@ app.post("/render", async (req, res) => {
           : layout.text.fontPx;
 
       ctx.font = fontPx + "px CustomFont";
+
       ctx.fillStyle = rows[i].isFirst
         ? layout.text.colorFirst
         : layout.text.colorNormal;
@@ -100,9 +108,9 @@ app.post("/render", async (req, res) => {
       );
     }
 
-    // ==============================
-    // ✅ FOOTER NUMBER (AJOUTÉ)
-    // ==============================
+    // ======================
+    // FOOTER NUMBER
+    // ======================
     if (layout.footerNumber && layout.footerNumber.text) {
 
       const f = layout.footerNumber;
@@ -116,7 +124,11 @@ app.post("/render", async (req, res) => {
       ctx.fillText(String(f.text), f.x, f.y);
     }
 
+    // ======================
+    // EXPORT PNG
+    // ======================
     const img = canvas.toBuffer("image/png");
+
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "no-store");
     res.status(200).send(img);
