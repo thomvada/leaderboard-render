@@ -73,11 +73,16 @@ app.post("/render", async (req, res) => {
     ctx.drawImage(bg, 0, 0);
 
     // ======================
-    // PRELOAD FIRST BOX
+    // PRELOAD FIRST BOX + CROWN
     // ======================
     let firstBoxImg = null;
     if (assets.firstBox && layout.firstBox) {
       firstBoxImg = await loadImage(await fetchBuffer(assets.firstBox));
+    }
+
+    let crownImg = null;
+    if (assets.crown && layout.crown) {
+      crownImg = await loadImage(await fetchBuffer(assets.crown));
     }
 
     const n = Math.min(
@@ -151,6 +156,14 @@ app.post("/render", async (req, res) => {
       const fyPx = psValueToPx(f.y, pxPerUnit);
 
       drawTextBaseline(ctx, String(f.text), fxPx, fyPx, f.anchor || "baselineCenter");
+    }
+
+    // ======================
+    // 6) CROWN (TOUT AU-DESSUS)
+    // ======================
+    if (crownImg && layout.crown) {
+      const c = layout.crown;
+      drawImageAnchored(ctx, crownImg, c.x, c.y, c.anchor || "topleft", c.w || null, c.h || null);
     }
 
     // ======================
