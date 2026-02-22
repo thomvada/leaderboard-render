@@ -108,26 +108,15 @@ app.post("/render", async (req, res) => {
     }
 
     // ======================
-    // FOOTER NUMBER (STABLE)
+    // FOOTER FORCÉ (IGNORER N8N)
     // ======================
-    if (layout.footerNumber && layout.footerNumber.text) {
+    ctx.font = "71px CustomFont";
+    ctx.fillStyle = "#FC2D35";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
 
-      const f = layout.footerNumber;
-
-      ctx.font = f.fontPx + "px CustomFont";
-      ctx.fillStyle = f.color || "#FC2D35";
-
-      // centrage horizontal automatique
-      ctx.textAlign = "center";
-
-      // on travaille en top pour contrôle exact
-      ctx.textBaseline = "top";
-
-      // conversion centre Photoshop -> top Canvas
-      const topY = f.y - (f.fontPx / 2);
-
-      ctx.fillText(String(f.text), f.x, topY);
-    }
+    // POSITION FORCÉE
+    ctx.fillText("7", 396.02, 1019.55);
 
     // ======================
     // EXPORT
