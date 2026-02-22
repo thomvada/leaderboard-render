@@ -38,7 +38,7 @@ function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = nul
 app.post("/render", async (req, res) => {
   try {
 
-    // 🔥 FIX JSON N8N
+    // ✅ Compatible n8n
     const payload = req.body.json ?? req.body;
     const { rows, assets, layout } = payload;
 
@@ -59,7 +59,6 @@ app.post("/render", async (req, res) => {
 
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext("2d");
-
     ctx.drawImage(bg, 0, 0);
 
     ctx.textBaseline = "top";
@@ -109,7 +108,7 @@ app.post("/render", async (req, res) => {
     }
 
     // ======================
-    // FOOTER NUMBER
+    // FOOTER NUMBER (CENTRÉ EXACT PS)
     // ======================
     if (layout.footerNumber && layout.footerNumber.text) {
 
@@ -118,6 +117,7 @@ app.post("/render", async (req, res) => {
       ctx.font = f.fontPx + "px CustomFont";
       ctx.fillStyle = f.color || "#FC2D35";
 
+      // 🔥 CENTRAGE PARFAIT
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
@@ -125,7 +125,7 @@ app.post("/render", async (req, res) => {
     }
 
     // ======================
-    // EXPORT PNG
+    // EXPORT
     // ======================
     const img = canvas.toBuffer("image/png");
 
