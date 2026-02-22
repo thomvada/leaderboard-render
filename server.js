@@ -12,13 +12,6 @@ async function fetchBuffer(url) {
   return Buffer.from(ab);
 }
 
-function drawText(ctx, text, x, y, align) {
-  const m = ctx.measureText(text);
-  if (align === "right") x -= m.width;
-  if (align === "center") x -= m.width / 2;
-  ctx.fillText(text, x, y);
-}
-
 function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = null) {
   const iw = w ?? img.width;
   const ih = h ?? img.height;
@@ -35,11 +28,33 @@ function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = nul
   else ctx.drawImage(img, dx, dy);
 }
 
+/**
+ * Draw text with horizontal anchor only.
+ * - slot.anchor can be: "left" | "center" | "right"
+ * - Unknown values fall back to "center"
+ * - y is used as TOP because ctx.textBaseline="top"
+ */
+function drawTextAnchored(ctx, text, slot) {
+  const prevAlign = ctx.textAlign;
+
+  const a = String(slot?.anchor || "center").toLowerCase();
+  const textAlign = (a === "left" || a === "right" || a === "center") ? a : "center";
+
+  ctx.textAlign = textAlign;
+  ctx.fillText(String(text), slot.x, slot.y);
+
+  ctx.textAlign = prevAlign;
+}
+
 app.post("/render", async (req, res) => {
   try {
-
     const payload = req.body.json ?? req.body;
     const { rows, assets, layout } = payload;
+
+    if (!rows || !Array.isArray(rows)) throw new Error("Payload invalide: rows manquant.");
+    if (!assets?.background) throw new Error("Payload invalide: assets.background manquant.");
+    if (!assets?.font) throw new Error("Payload invalide: assets.font manquant.");
+    if (!layout?.bannerSlots || !layout?.amountSlots) throw new Error("Payload invalide: layout.* manquant.");
 
     // ======================
     // POLICE
@@ -61,21 +76,34 @@ app.post("/render", async (req, res) => {
 
     ctx.drawImage(bg, 0, 0);
 
+    // Nous travaillons en TOP pour avoir un y stable
     ctx.textBaseline = "top";
 
     // ======================
-    // BANNIÈRES + MONTANTS
+    // PRELOAD FIRST BOX (si présent)
     // ======================
-    for (let i = 0; i < rows.length; i++) {
+    let firstBoxImg = null;
+    if (assets.firstBox && layout.firstBox) {
+      firstBoxImg = await loadImage(await fetchBuffer(assets.firstBox));
+    }
 
-      const banner = await loadImage(await fetchBuffer(rows[i].banner));
+    // ======================
+    // BANNIÈRES + 1st BOX + MONTANTS
+    // ======================
+    const n = Math.min(rows.length, 3); // si tu veux strict top3 côté render
+    for (let i = 0; i < n; i++) {
+      const row = rows[i];
+
+      // Banner
+      if (!row?.banner) throw new Error(`Banner manquante pour rows[${i}] (${row?.name || "?"})`);
+      const banner = await loadImage(await fetchBuffer(row.banner));
       const bs = layout.bannerSlots[i];
+      if (!bs) throw new Error(`layout.bannerSlots[${i}] manquant`);
       drawImageAnchored(ctx, banner, bs.x, bs.y, bs.anchor || "topleft");
 
-      if (rows[i].isFirst && assets.firstBox && layout.firstBox) {
-        const firstBoxImg = await loadImage(await fetchBuffer(assets.firstBox));
+      // First box (dessinée APRES la bannière, AVANT le texte)
+      if (row.isFirst && firstBoxImg && layout.firstBox) {
         const fb = layout.firstBox;
-
         drawImageAnchored(
           ctx,
           firstBoxImg,
@@ -87,42 +115,50 @@ app.post("/render", async (req, res) => {
         );
       }
 
+      // Font size
       const fontPx =
-        (layout.text.fontPxByRow && layout.text.fontPxByRow[i])
+        (layout.text?.fontPxByRow && layout.text.fontPxByRow[i])
           ? layout.text.fontPxByRow[i]
-          : layout.text.fontPx;
+          : (layout.text?.fontPx || 120);
 
-      ctx.font = fontPx + "px CustomFont";
+      ctx.font = `${fontPx}px CustomFont`;
 
-      ctx.fillStyle = rows[i].isFirst
-        ? layout.text.colorFirst
-        : layout.text.colorNormal;
+      // Color
+      ctx.fillStyle = row.isFirst
+        ? (layout.text?.colorFirst || "#FFFFFF")
+        : (layout.text?.colorNormal || "#FC2D35");
 
-      drawText(
-        ctx,
-        rows[i].amountText,
-        layout.amountSlots[i].x,
-        layout.amountSlots[i].y,
-        layout.amountSlots[i].anchor
-      );
+      // Amount
+      const as = layout.amountSlots[i];
+      if (!as) throw new Error(`layout.amountSlots[${i}] manquant`);
+      drawTextAnchored(ctx, row.amountText, as);
     }
 
     // ======================
-    // FOOTER FORCÉ (IGNORER N8N)
+    // FOOTER NUMBER (STABLE)
     // ======================
-    ctx.font = "71px CustomFont";
-    ctx.fillStyle = "#FC2D35";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
+    if (layout.footerNumber && layout.footerNumber.text != null) {
+      const f = layout.footerNumber;
 
-    // POSITION FORCÉE
-    ctx.fillText("7", 396.02, 1019.55);
+      ctx.font = `${f.fontPx}px CustomFont`;
+      ctx.fillStyle = f.color || "#FC2D35";
+
+      // centrage horizontal fiable
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+
+      // conversion centre Photoshop -> top Canvas
+      const topY = f.y - (f.fontPx / 2);
+      ctx.fillText(String(f.text), f.x, topY);
+
+      // reset align pour éviter effets de bord
+      ctx.textAlign = "start";
+    }
 
     // ======================
     // EXPORT
     // ======================
     const img = canvas.toBuffer("image/png");
-
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "no-store");
     res.status(200).send(img);
