@@ -86,7 +86,7 @@ app.post("/render", async (req, res) => {
     }
 
     const n = Math.min(
-      3,
+      5,
       rows.length,
       layout.bannerSlots.length,
       layout.amountSlots.length
@@ -104,7 +104,7 @@ app.post("/render", async (req, res) => {
     }
 
     // ======================
-    // 2) TEXTES 2e & 3e (au-dessus des bannières)
+    // 2) TEXTES 2e → n (au-dessus des bannières)
     //    Baseline-left, coords PS -> px
     // ======================
     for (let i = 1; i < n; i++) {
