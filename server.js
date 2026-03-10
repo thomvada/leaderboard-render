@@ -11,7 +11,7 @@ async function fetchBuffer(url) {
   return Buffer.from(await r.arrayBuffer());
 }
 
-// Image anchored (topleft/center)
+// Image anchored
 function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = null) {
   const iw = w ?? img.width;
   const ih = h ?? img.height;
@@ -28,14 +28,14 @@ function drawImageAnchored(ctx, img, x, y, anchor = "topleft", w = null, h = nul
   else ctx.drawImage(img, dx, dy);
 }
 
-// Convert PS unit value (string "2,853") into px using pxPerUnit
+// Convert PS → px
 function psValueToPx(v, pxPerUnit) {
   const n = Number(String(v).replace(",", "."));
   if (!Number.isFinite(n)) return 0;
   return n * pxPerUnit;
 }
 
-// Draw baseline text (left/center) with absolute px coords
+// Draw baseline text
 function drawTextBaseline(ctx, text, x, y, anchor = "baselineLeft") {
   const a = String(anchor || "baselineLeft").toLowerCase();
   ctx.textAlign = a.includes("center") ? "center" : "left";
@@ -45,21 +45,13 @@ function drawTextBaseline(ctx, text, x, y, anchor = "baselineLeft") {
 
 app.post("/render", async (req, res) => {
   try {
+
     const payload = req.body?.json ?? req.body;
     const { rows, assets, layout } = payload || {};
 
-    if (!rows || !Array.isArray(rows)) {
-      throw new Error("Payload invalide: rows manquant.");
-    }
-    if (!assets?.background) {
-      throw new Error("Payload invalide: assets.background manquant.");
-    }
-    if (!assets?.font) {
-      throw new Error("Payload invalide: assets.font manquant.");
-    }
-    if (!layout?.bannerSlots || !layout?.amountSlots) {
-      throw new Error("Payload invalide: layout.bannerSlots/amountSlots manquants.");
-    }
+    if (!rows || !Array.isArray(rows)) throw new Error("rows manquant");
+    if (!assets?.background) throw new Error("background manquant");
+    if (!assets?.font) throw new Error("font manquant");
 
     // ======================
     // POLICE
@@ -78,10 +70,15 @@ app.post("/render", async (req, res) => {
 
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext("2d");
+
     ctx.drawImage(bg, 0, 0);
 
+    // DEBUG GLOBAL
+    ctx.fillStyle = "rgba(0,0,255,0.35)";
+    ctx.fillRect(0, 0, 200, 200);
+
     // ======================
-    // PRELOAD FIRST BOX + CROWN
+    // PRELOAD IMAGES
     // ======================
     let firstBoxImg = null;
     if (assets.firstBox && layout.firstBox) {
@@ -102,10 +99,10 @@ app.post("/render", async (req, res) => {
     const pxPerUnit = Number(layout?.coordSystem?.pxPerUnit) || 1;
 
     // ======================
-    // 1) BANNIÈRES (fond) — TOP-LEFT PX
-    //    + DEBUG contour vert
+    // 1) BANNIÈRES
     // ======================
     for (let i = 0; i < n; i++) {
+
       const bannerImg = await loadImage(await fetchBuffer(rows[i].banner));
       const bs = layout.bannerSlots[i];
 
@@ -122,29 +119,40 @@ app.post("/render", async (req, res) => {
         bs.h || null
       );
 
-      // DEBUG: contour temporaire du slot
+      // DEBUG SLOT
+      ctx.fillStyle = "rgba(255,0,0,0.25)";
+      ctx.fillRect(bs.x, bs.y, drawW, drawH);
+
       ctx.strokeStyle = "#00FF00";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 8;
       ctx.strokeRect(bs.x, bs.y, drawW, drawH);
     }
 
     // ======================
-    // 2) TEXTES 2e → n
+    // TEXTES 2 → n
     // ======================
     for (let i = 1; i < n; i++) {
+
       const fontPx = layout.text?.fontPxByRow?.[i] ?? 158;
       ctx.font = `${fontPx}px CustomFont`;
       ctx.fillStyle = layout.text?.colorNormal || "#FC2D35";
 
       const s = layout.amountSlots[i];
+
       const xPx = psValueToPx(s.x, pxPerUnit);
       const yPx = psValueToPx(s.y, pxPerUnit);
 
-      drawTextBaseline(ctx, rows[i].amountText, xPx, yPx, s.anchor || "baselineLeft");
+      drawTextBaseline(
+        ctx,
+        rows[i].amountText,
+        xPx,
+        yPx,
+        s.anchor || "baselineLeft"
+      );
     }
 
     // ======================
-    // 3) FIRST BOX
+    // FIRST BOX
     // ======================
     if (firstBoxImg && layout.firstBox) {
       const fb = layout.firstBox;
@@ -152,25 +160,36 @@ app.post("/render", async (req, res) => {
     }
 
     // ======================
-    // 4) TEXTE DU 1er
+    // TEXTE 1er
     // ======================
     if (n >= 1) {
+
       const fontPx = layout.text?.fontPxByRow?.[0] ?? 158;
+
       ctx.font = `${fontPx}px CustomFont`;
       ctx.fillStyle = layout.text?.colorFirst || "#FFFFFF";
 
       const s0 = layout.amountSlots[0];
+
       const x0Px = psValueToPx(s0.x, pxPerUnit);
       const y0Px = psValueToPx(s0.y, pxPerUnit);
 
-      drawTextBaseline(ctx, rows[0].amountText, x0Px, y0Px, s0.anchor || "baselineLeft");
+      drawTextBaseline(
+        ctx,
+        rows[0].amountText,
+        x0Px,
+        y0Px,
+        s0.anchor || "baselineLeft"
+      );
     }
 
     // ======================
-    // 5) FOOTER
+    // FOOTER
     // ======================
-    if (layout.footerNumber && layout.footerNumber.text != null) {
+    if (layout.footerNumber?.text != null) {
+
       const f = layout.footerNumber;
+
       const fontPx = Number(f.fontPx) || 71;
 
       ctx.font = `${fontPx}px CustomFont`;
@@ -179,14 +198,22 @@ app.post("/render", async (req, res) => {
       const fxPx = psValueToPx(f.x, pxPerUnit);
       const fyPx = psValueToPx(f.y, pxPerUnit);
 
-      drawTextBaseline(ctx, String(f.text), fxPx, fyPx, f.anchor || "baselineCenter");
+      drawTextBaseline(
+        ctx,
+        String(f.text),
+        fxPx,
+        fyPx,
+        f.anchor || "baselineCenter"
+      );
     }
 
     // ======================
-    // 6) CROWN
+    // CROWN
     // ======================
     if (crownImg && layout.crown) {
+
       const c = layout.crown;
+
       drawImageAnchored(
         ctx,
         crownImg,
@@ -202,12 +229,18 @@ app.post("/render", async (req, res) => {
     // EXPORT
     // ======================
     const img = canvas.toBuffer("image/png");
+
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "no-store");
+
     res.status(200).send(img);
 
   } catch (err) {
-    res.status(500).json({ error: String(err.message || err) });
+
+    res.status(500).json({
+      error: String(err.message || err)
+    });
+
   }
 });
 
