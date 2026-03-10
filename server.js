@@ -48,10 +48,18 @@ app.post("/render", async (req, res) => {
     const payload = req.body?.json ?? req.body;
     const { rows, assets, layout } = payload || {};
 
-    if (!rows || !Array.isArray(rows)) throw new Error("Payload invalide: rows manquant.");
-    if (!assets?.background) throw new Error("Payload invalide: assets.background manquant.");
-    if (!assets?.font) throw new Error("Payload invalide: assets.font manquant.");
-    if (!layout?.bannerSlots || !layout?.amountSlots) throw new Error("Payload invalide: layout.bannerSlots/amountSlots manquants.");
+    if (!rows || !Array.isArray(rows)) {
+      throw new Error("Payload invalide: rows manquant.");
+    }
+    if (!assets?.background) {
+      throw new Error("Payload invalide: assets.background manquant.");
+    }
+    if (!assets?.font) {
+      throw new Error("Payload invalide: assets.font manquant.");
+    }
+    if (!layout?.bannerSlots || !layout?.amountSlots) {
+      throw new Error("Payload invalide: layout.bannerSlots/amountSlots manquants.");
+    }
 
     // ======================
     // POLICE
@@ -95,15 +103,33 @@ app.post("/render", async (req, res) => {
 
     // ======================
     // 1) BANNIÈRES (fond) — TOP-LEFT PX
+    //    + DEBUG contour vert
     // ======================
     for (let i = 0; i < n; i++) {
       const bannerImg = await loadImage(await fetchBuffer(rows[i].banner));
       const bs = layout.bannerSlots[i];
-      drawImageAnchored(ctx, bannerImg, bs.x, bs.y, bs.anchor || "topleft");
+
+      const drawW = bs.w || bannerImg.width;
+      const drawH = bs.h || bannerImg.height;
+
+      drawImageAnchored(
+        ctx,
+        bannerImg,
+        bs.x,
+        bs.y,
+        bs.anchor || "topleft",
+        bs.w || null,
+        bs.h || null
+      );
+
+      // DEBUG: contour temporaire du slot
+      ctx.strokeStyle = "#00FF00";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(bs.x, bs.y, drawW, drawH);
     }
 
     // ======================
-    // 2) TEXTES 2e → n (au-dessus des bannières)
+    // 2) TEXTES 2e → n
     // ======================
     for (let i = 1; i < n; i++) {
       const fontPx = layout.text?.fontPxByRow?.[i] ?? 158;
@@ -161,7 +187,15 @@ app.post("/render", async (req, res) => {
     // ======================
     if (crownImg && layout.crown) {
       const c = layout.crown;
-      drawImageAnchored(ctx, crownImg, c.x, c.y, c.anchor || "topleft", c.w || null, c.h || null);
+      drawImageAnchored(
+        ctx,
+        crownImg,
+        c.x,
+        c.y,
+        c.anchor || "topleft",
+        c.w || null,
+        c.h || null
+      );
     }
 
     // ======================
