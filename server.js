@@ -45,7 +45,6 @@ function drawTextBaseline(ctx, text, x, y, anchor = "baselineLeft") {
 
 app.post("/render", async (req, res) => {
   try {
-
     const payload = req.body?.json ?? req.body;
     const { rows, assets, layout } = payload || {};
 
@@ -73,10 +72,6 @@ app.post("/render", async (req, res) => {
 
     ctx.drawImage(bg, 0, 0);
 
-    // DEBUG GLOBAL
-    ctx.fillStyle = "rgba(0,0,255,0.35)";
-    ctx.fillRect(0, 0, 200, 200);
-
     // ======================
     // PRELOAD IMAGES
     // ======================
@@ -102,12 +97,8 @@ app.post("/render", async (req, res) => {
     // 1) BANNIÈRES
     // ======================
     for (let i = 0; i < n; i++) {
-
       const bannerImg = await loadImage(await fetchBuffer(rows[i].banner));
       const bs = layout.bannerSlots[i];
-
-      const drawW = bs.w || bannerImg.width;
-      const drawH = bs.h || bannerImg.height;
 
       drawImageAnchored(
         ctx,
@@ -118,21 +109,12 @@ app.post("/render", async (req, res) => {
         bs.w || null,
         bs.h || null
       );
-
-      // DEBUG SLOT
-      ctx.fillStyle = "rgba(255,0,0,0.25)";
-      ctx.fillRect(bs.x, bs.y, drawW, drawH);
-
-      ctx.strokeStyle = "#00FF00";
-      ctx.lineWidth = 8;
-      ctx.strokeRect(bs.x, bs.y, drawW, drawH);
     }
 
     // ======================
     // TEXTES 2 → n
     // ======================
     for (let i = 1; i < n; i++) {
-
       const fontPx = layout.text?.fontPxByRow?.[i] ?? 158;
       ctx.font = `${fontPx}px CustomFont`;
       ctx.fillStyle = layout.text?.colorNormal || "#FC2D35";
@@ -163,7 +145,6 @@ app.post("/render", async (req, res) => {
     // TEXTE 1er
     // ======================
     if (n >= 1) {
-
       const fontPx = layout.text?.fontPxByRow?.[0] ?? 158;
 
       ctx.font = `${fontPx}px CustomFont`;
@@ -187,9 +168,7 @@ app.post("/render", async (req, res) => {
     // FOOTER
     // ======================
     if (layout.footerNumber?.text != null) {
-
       const f = layout.footerNumber;
-
       const fontPx = Number(f.fontPx) || 71;
 
       ctx.font = `${fontPx}px CustomFont`;
@@ -211,7 +190,6 @@ app.post("/render", async (req, res) => {
     // CROWN
     // ======================
     if (crownImg && layout.crown) {
-
       const c = layout.crown;
 
       drawImageAnchored(
@@ -234,13 +212,10 @@ app.post("/render", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
 
     res.status(200).send(img);
-
   } catch (err) {
-
     res.status(500).json({
       error: String(err.message || err)
     });
-
   }
 });
 
