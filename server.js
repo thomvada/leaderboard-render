@@ -86,7 +86,6 @@ app.post("/render", async (req, res) => {
     }
 
     const n = Math.min(
-      5,
       rows.length,
       layout.bannerSlots.length,
       layout.amountSlots.length
@@ -105,7 +104,6 @@ app.post("/render", async (req, res) => {
 
     // ======================
     // 2) TEXTES 2e → n (au-dessus des bannières)
-    //    Baseline-left, coords PS -> px
     // ======================
     for (let i = 1; i < n; i++) {
       const fontPx = layout.text?.fontPxByRow?.[i] ?? 158;
@@ -120,7 +118,7 @@ app.post("/render", async (req, res) => {
     }
 
     // ======================
-    // 3) FIRST BOX (AU PREMIER PLAN, TOUJOURS)
+    // 3) FIRST BOX
     // ======================
     if (firstBoxImg && layout.firstBox) {
       const fb = layout.firstBox;
@@ -128,7 +126,7 @@ app.post("/render", async (req, res) => {
     }
 
     // ======================
-    // 4) TEXTE DU 1er (SEUL élément au-dessus du rectangle rouge)
+    // 4) TEXTE DU 1er
     // ======================
     if (n >= 1) {
       const fontPx = layout.text?.fontPxByRow?.[0] ?? 158;
@@ -143,7 +141,7 @@ app.post("/render", async (req, res) => {
     }
 
     // ======================
-    // 5) FOOTER (baseline-center)
+    // 5) FOOTER
     // ======================
     if (layout.footerNumber && layout.footerNumber.text != null) {
       const f = layout.footerNumber;
@@ -159,7 +157,7 @@ app.post("/render", async (req, res) => {
     }
 
     // ======================
-    // 6) CROWN (TOUT AU-DESSUS)
+    // 6) CROWN
     // ======================
     if (crownImg && layout.crown) {
       const c = layout.crown;
